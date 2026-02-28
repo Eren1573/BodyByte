@@ -5,7 +5,7 @@ import FoodLogger from './components/FoodLogger';
 import SignIn from './components/SignIn';
 import Stats from './components/Stats';
 import Profile from './components/Profile';
-import logo from '/logo.png';
+// import logo from './assets/logo.png'; // TODO: Add logo.png to assets folder
 import { UserProfile, FoodItem } from './types';
 import { Home, Camera, BarChart2, User, Plus, LogOut, Search } from 'lucide-react';
 
@@ -158,7 +158,7 @@ const App: React.FC = () => {
         {/* DESKTOP SIDEBAR (Hidden on mobile) */}
         <aside className="hidden md:flex flex-col w-64 fixed h-full bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 z-30">
            <div className="p-6 flex items-center gap-3">
-              <img src={logo} alt="BodyByte" className="h-8 w-8" />
+              {/* <img src={logo} alt="BodyByte" className="h-8 w-8" /> */}
               <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-slate-800 to-slate-600 dark:from-white dark:to-slate-400">
                 BodyByte
               </h1>
