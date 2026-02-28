@@ -1,30 +1,52 @@
-# BodyByte 🥗
 
-A smart, AI-driven nutrition tracker for Indian and global foods, powered by Google Gemini.
+# BodyByte Vercel
 
-## Run Locally
+A modern web application built and deployed on Vercel.
 
-**Prerequisites:** Node.js 18+
+## Getting Started
 
-1. Install dependencies:
-   ```bash
-   npm install
-   ```
-2. Add your Gemini API key to `.env.local`:
-   ```
-   API_KEY=your_gemini_api_key_here
-   ```
-3. Run the app:
-   ```bash
-   npm run dev
-   ```
+### Prerequisites
+- Node.js 16+
+- npm or yarn
 
-## Deploy to Vercel
+### Installation
 
-1. Push this project to a GitHub repository
-2. Import the repo in [Vercel](https://vercel.com)
-3. In Vercel project settings → **Environment Variables**, add:
-   - `API_KEY` = your Gemini API key
-4. Deploy — Vercel auto-detects Vite and builds correctly
+```bash
+npm install
+```
 
-> Get your Gemini API key at https://aistudio.google.com/app/apikey
+### Development
+
+```bash
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+### Build & Deploy
+
+```bash
+npm run build
+```
+
+Deploy to Vercel:
+
+```bash
+vercel deploy
+```
+
+## Features
+
+- Fast performance with Vercel edge network
+- Built with modern web standards
+- Easy deployment and scaling
+
+## Project Structure
+
+```
+/
+├── public/          # Static assets
+├── src/             # Source code
+├── package.json     # Dependencies
+└── vercel.json      # Vercel configuration
+```
