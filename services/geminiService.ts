@@ -1,8 +1,9 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { UserProfile, Gender, FoodItem } from "../types";
-
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-const MODEL = "gemini-2.0-flash";
+
+// Constants for Models
+const MODEL_NAME = "gemini-3-flash-preview";
 
 // Shared schema for food nutrition
 const foodSchema = {
@@ -21,7 +22,7 @@ const INDIAN_CONTEXT = `Use Indian portion context: 1 katori=~150g, 1 roti/chapa
 export const calculateHealthPlan = async (name: string, age: number, height: number, weight: number, gender: Gender): Promise<Partial<UserProfile>> => {
   try {
     const res = await ai.models.generateContent({
-      model: MODEL,
+      model: MODEL_NAME,
       contents: `Calculate health metrics for: ${name}, Age ${age}, Height ${height}cm, Weight ${weight}kg, Gender ${gender}. Provide BMI, daily calorie target, macro split (protein/carbs/fat in grams), micronutrient targets (fiber g, calcium mg, iron mg, vitaminA mcg, vitaminC mg), and daily water intake in ml.`,
       config: {
         responseMimeType: "application/json",
@@ -53,7 +54,7 @@ export const calculateHealthPlan = async (name: string, age: number, height: num
 
 export const analyzeFoodText = async (description: string): Promise<any> => {
   const res = await ai.models.generateContent({
-    model: MODEL,
+    model: MODEL_NAME,
     contents: `Analyse this food: "${description}". ${INDIAN_CONTEXT} Return nutrition for TOTAL quantity.`,
     config: { responseMimeType: "application/json", responseSchema: foodSchema },
   });
@@ -63,7 +64,7 @@ export const analyzeFoodText = async (description: string): Promise<any> => {
 
 export const analyzeFoodImage = async (imageBase64: string, mimeType: string): Promise<any> => {
   const res = await ai.models.generateContent({
-    model: MODEL,
+    model: MODEL_NAME,
     contents: { parts: [{ inlineData: { data: imageBase64, mimeType } }, { text: `Identify this food and estimate nutrition. ${INDIAN_CONTEXT} Return nutrition for TOTAL identified quantity.` }] },
     config: { responseMimeType: "application/json", responseSchema: foodSchema },
   });
@@ -81,7 +82,7 @@ export const getWeeklySummary = async (weekLogs: FoodItem[], user: UserProfile):
   const summary = Object.entries(days).map(([d, v]) => `${d}: ${Math.round(v.cal)}cal, ${Math.round(v.prot)}g protein`).join('\n');
 
   const res = await ai.models.generateContent({
-    model: MODEL,
+    model: MODEL_NAME,
     contents: `You are a friendly Indian nutrition coach. Analyse this week for ${user.name} (target: ${user.targetCalories}cal/day, ${user.targetProtein}g protein):\n${summary || "No data logged."}\n\nWrite a warm 3-4 sentence summary: what went well, one tip mentioning Indian foods if relevant, motivating close. Under 80 words.`,
   });
   return res.text || "Keep logging your meals to get a personalised weekly summary!";
