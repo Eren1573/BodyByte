@@ -1,87 +1,245 @@
-import { GoogleGenAI, Type } from "@google/genai";
-import { UserProfile, Gender, FoodItem } from "../types";
-const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_API_KEY });
-// Constants for Models
-const MODEL_NAME = "gemini-2.0-flash";
-// Shared schema for food nutrition
-const foodSchema = {
-  type: Type.OBJECT,
-  properties: {
-    name: { type: Type.STRING }, quantity: { type: Type.NUMBER }, unit: { type: Type.STRING },
-    weight_g: { type: Type.NUMBER }, calories: { type: Type.NUMBER }, protein: { type: Type.NUMBER },
-    carbs: { type: Type.NUMBER }, fat: { type: Type.NUMBER }, fiber: { type: Type.NUMBER },
-    micros: { type: Type.OBJECT, properties: { calcium: { type: Type.NUMBER }, iron: { type: Type.NUMBER }, vitaminA: { type: Type.NUMBER }, vitaminC: { type: Type.NUMBER } } },
-  },
-  required: ["name", "quantity", "unit", "calories", "protein", "carbs", "fat", "fiber"],
-};
+import { GoogleGenAI } from '@google/genai';
+import { FoodItem, UserProfile } from '../types';
 
-const INDIAN_CONTEXT = `Use Indian portion context: 1 katori=~150g, 1 roti/chapati=~32g(90kcal), 1 paratha=~70g(200kcal), 1 idli=~37g, 1 dosa(plain)=~55g, 1 samosa=~85g, 1 cup chai(milk)=~110kcal. Report Calcium/Iron in mg, VitaminA in mcg, VitaminC in mg.`;
+// ── 1. Collect all keys ───────────────────────────────────────
+const API_KEYS: string[] = [
+  import.meta.env.VITE_API_KEY_1,
+  import.meta.env.VITE_API_KEY_2,
+  import.meta.env.VITE_API_KEY_3,
+  import.meta.env.VITE_API_KEY_4,
+  import.meta.env.VITE_API_KEY_5,
+].filter((k): k is string => typeof k === 'string' && k.trim().length > 0);
 
-export const calculateHealthPlan = async (name: string, age: number, height: number, weight: number, gender: Gender): Promise<Partial<UserProfile>> => {
-  try {
-    const res = await ai.models.generateContent({
-      model: MODEL_NAME,
-      contents: `Calculate health metrics for: ${name}, Age ${age}, Height ${height}cm, Weight ${weight}kg, Gender ${gender}. Provide BMI, daily calorie target, macro split (protein/carbs/fat in grams), micronutrient targets (fiber g, calcium mg, iron mg, vitaminA mcg, vitaminC mg), and daily water intake in ml.`,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: { bmi: { type: Type.NUMBER }, targetCalories: { type: Type.NUMBER }, targetProtein: { type: Type.NUMBER }, targetCarbs: { type: Type.NUMBER }, targetFat: { type: Type.NUMBER }, targetFiber: { type: Type.NUMBER }, targetCalcium: { type: Type.NUMBER }, targetIron: { type: Type.NUMBER }, targetVitaminA: { type: Type.NUMBER }, targetVitaminC: { type: Type.NUMBER }, targetWater: { type: Type.NUMBER } },
-          required: ["bmi", "targetCalories", "targetProtein", "targetCarbs", "targetFat", "targetFiber", "targetCalcium", "targetIron", "targetVitaminA", "targetVitaminC", "targetWater"],
-        },
-      },
-    });
-    return JSON.parse(res.text || "{}");
-  } catch {
-    const h = height / 100;
-    const bmi = parseFloat((weight / (h * h)).toFixed(1));
-    const bmr = gender === 'Male'
-      ? 10 * weight + 6.25 * height - 5 * age + 5
-      : 10 * weight + 6.25 * height - 5 * age - 161;
-    const targetCalories = Math.round(bmr * 1.55);
-    const targetProtein = Math.round(weight * 1.8);
-    const targetFat = Math.round((targetCalories * 0.25) / 9);
-    const targetCarbs = Math.round((targetCalories - targetProtein * 4 - targetFat * 9) / 4);
-    return {
-      bmi, targetCalories, targetProtein, targetCarbs, targetFat,
-      targetFiber: 30, targetCalcium: 1000, targetIron: 18,
-      targetVitaminA: 900, targetVitaminC: 90, targetWater: Math.round(weight * 35)
-    };
+if (API_KEYS.length === 0) {
+  throw new Error('[geminiService] No API keys found. Add VITE_API_KEY_1 to .env.local');
+}
+
+// ── 2. Helpers ────────────────────────────────────────────────
+function shuffled<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
   }
-};
+  return a;
+}
 
-export const analyzeFoodText = async (description: string): Promise<any> => {
-  const res = await ai.models.generateContent({
-    model: MODEL_NAME,
-    contents: `Analyse this food: "${description}". ${INDIAN_CONTEXT} Return nutrition for TOTAL quantity.`,
-    config: { responseMimeType: "application/json", responseSchema: foodSchema },
-  });
-  const data = JSON.parse(res.text || "{}");
-  return { ...data, amount: `${data.quantity} ${data.unit}` };
-};
+function isRetryable(err: unknown): boolean {
+  if (err instanceof Error) {
+    return /429|quota|rate.?limit|overload|503|500/i.test(err.message);
+  }
+  return false;
+}
 
-export const analyzeFoodImage = async (imageBase64: string, mimeType: string): Promise<any> => {
-  const res = await ai.models.generateContent({
-    model: MODEL_NAME,
-    contents: { parts: [{ inlineData: { data: imageBase64, mimeType } }, { text: `Identify this food and estimate nutrition. ${INDIAN_CONTEXT} Return nutrition for TOTAL identified quantity.` }] },
-    config: { responseMimeType: "application/json", responseSchema: foodSchema },
-  });
-  const data = JSON.parse(res.text || "{}");
-  return { ...data, amount: `${data.quantity} ${data.unit}` };
-};
+function stripJson(text: string): string {
+  return text.replace(/```json|```/g, '').trim();
+}
 
-export const getWeeklySummary = async (weekLogs: FoodItem[], user: UserProfile): Promise<string> => {
-  const days: Record<string, any> = {};
-  weekLogs.forEach(i => {
-    const d = new Date(i.timestamp).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric' });
-    if (!days[d]) days[d] = { cal: 0, prot: 0 };
-    days[d].cal += i.calories; days[d].prot += i.protein;
-  });
-  const summary = Object.entries(days).map(([d, v]) => `${d}: ${Math.round(v.cal)}cal, ${Math.round(v.prot)}g protein`).join('\n');
+// ── 3. Core fallback call (text only) ────────────────────────
+async function callGemini(
+  prompt: string,
+  model = 'gemini-2.0-flash'
+): Promise<string> {
+  const keys = shuffled(API_KEYS);
+  let lastError: unknown;
 
-  const res = await ai.models.generateContent({
-    model: MODEL_NAME,
-    contents: `You are a friendly Indian nutrition coach. Analyse this week for ${user.name} (target: ${user.targetCalories}cal/day, ${user.targetProtein}g protein):\n${summary || "No data logged."}\n\nWrite a warm 3-4 sentence summary: what went well, one tip mentioning Indian foods if relevant, motivating close. Under 80 words.`,
+  for (let i = 0; i < keys.length; i++) {
+    try {
+      const client = new GoogleGenAI({ apiKey: keys[i] });
+      const response = await client.models.generateContent({ model, contents: prompt });
+      return response.text ?? '';
+    } catch (err) {
+      lastError = err;
+      const label = `Key ${i + 1}/${keys.length}`;
+      if (isRetryable(err)) {
+        console.warn(`[geminiService] ${label} rate-limited, trying next…`);
+      } else {
+        console.warn(`[geminiService] ${label} failed: ${(err as Error)?.message}, trying next…`);
+      }
+    }
+  }
+
+  throw new Error(
+    `[geminiService] All ${keys.length} key(s) exhausted. Last: ${(lastError as Error)?.message}`
+  );
+}
+
+// ── 4. Multi-modal fallback call (image + text) ───────────────
+async function callGeminiWithImage(
+  prompt: string,
+  base64Image: string,
+  mimeType: string,
+  model = 'gemini-2.0-flash'
+): Promise<string> {
+  const keys = shuffled(API_KEYS);
+  let lastError: unknown;
+
+  for (let i = 0; i < keys.length; i++) {
+    try {
+      const client = new GoogleGenAI({ apiKey: keys[i] });
+      const response = await client.models.generateContent({
+        model,
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { inlineData: { mimeType, data: base64Image } },
+              { text: prompt },
+            ],
+          },
+        ],
+      });
+      return response.text ?? '';
+    } catch (err) {
+      lastError = err;
+      console.warn(
+        `[geminiService] Image key ${i + 1}/${keys.length} failed: ${(err as Error)?.message}, trying next…`
+      );
+    }
+  }
+
+  throw new Error(
+    `[geminiService] All ${keys.length} key(s) exhausted for image. Last: ${(lastError as Error)?.message}`
+  );
+}
+
+// ── 5. Public API (same signatures as before) ─────────────────
+
+/**
+ * Analyse a text food description and return structured nutrition data.
+ * Used by: FoodLogger.tsx
+ */
+export async function analyzeFoodText(description: string): Promise<any> {
+  const prompt = `
+You are a nutrition expert specialising in Indian and global cuisine.
+Analyse this food description and return ONLY a JSON object (no markdown, no explanation):
+
+"${description}"
+
+Return this exact shape:
+{
+  "name": "display name",
+  "calories": number,
+  "protein": number,
+  "carbs": number,
+  "fat": number,
+  "fiber": number,
+  "quantity": number,
+  "unit": "pcs|g|ml|katori|bowl|plate|cup|roti|paratha|slice|tbsp|tsp",
+  "weight_g": number,
+  "micros": { "calcium": number, "iron": number, "vitaminA": number, "vitaminC": number }
+}
+
+All numbers are per the quantity/unit specified. Be accurate for Indian foods.`;
+
+  const text = await callGemini(prompt);
+  return JSON.parse(stripJson(text));
+}
+
+/**
+ * Analyse a food image (base64) and return structured nutrition data.
+ * Used by: FoodLogger.tsx
+ */
+export async function analyzeFoodImage(base64Image: string, mimeType: string): Promise<any> {
+  const prompt = `
+You are a nutrition expert specialising in Indian and global cuisine.
+Identify the food in this image and return ONLY a JSON object (no markdown, no explanation):
+
+{
+  "name": "display name",
+  "calories": number,
+  "protein": number,
+  "carbs": number,
+  "fat": number,
+  "fiber": number,
+  "quantity": number,
+  "unit": "pcs|g|ml|katori|bowl|plate|cup|roti|paratha|slice|tbsp|tsp",
+  "weight_g": number,
+  "micros": { "calcium": number, "iron": number, "vitaminA": number, "vitaminC": number }
+}
+
+Estimate a realistic portion size. Be accurate for Indian foods.`;
+
+  const text = await callGeminiWithImage(prompt, base64Image, mimeType);
+  return JSON.parse(stripJson(text));
+}
+
+/**
+ * Calculate a personalised health & nutrition plan for a user.
+ * Used by: Onboarding.tsx, Profile.tsx
+ */
+export async function calculateHealthPlan(
+  name: string,
+  age: number,
+  height: number,
+  weight: number,
+  gender: string
+): Promise<any> {
+  const bmi = parseFloat((weight / ((height / 100) ** 2)).toFixed(1));
+
+  const prompt = `
+You are a certified nutritionist.
+Calculate a personalised daily nutrition plan for:
+  Name: ${name}, Age: ${age}, Gender: ${gender}, Height: ${height}cm, Weight: ${weight}kg, BMI: ${bmi}
+
+Return ONLY a JSON object (no markdown, no explanation):
+{
+  "bmi": number,
+  "targetCalories": number,
+  "targetProtein": number,
+  "targetCarbs": number,
+  "targetFat": number,
+  "targetFiber": number,
+  "targetCalcium": number,
+  "targetIron": number,
+  "targetVitaminA": number,
+  "targetVitaminC": number,
+  "targetWater": number
+}
+
+targetWater is in ml. All other values in grams except calcium/iron/vitaminA/vitaminC (mg).
+Use WHO / ICMR guidelines. Tailor for an Indian diet context.`;
+
+  const text = await callGemini(prompt);
+  return JSON.parse(stripJson(text));
+}
+
+/**
+ * Generate an AI weekly nutrition summary for the Stats page.
+ * Used by: Stats.tsx
+ */
+export async function getWeeklySummary(logs: FoodItem[], user: UserProfile): Promise<string> {
+  const days: Record<string, { cal: number; protein: number; carbs: number; fat: number }> = {};
+
+  logs.forEach(l => {
+    const d = new Date(l.timestamp).toISOString().split('T')[0];
+    if (!days[d]) days[d] = { cal: 0, protein: 0, carbs: 0, fat: 0 };
+    days[d].cal     += l.calories;
+    days[d].protein += l.protein;
+    days[d].carbs   += l.carbs;
+    days[d].fat     += l.fat;
   });
-  return res.text || "Keep logging your meals to get a personalised weekly summary!";
-};
+
+  const daySummary = Object.entries(days)
+    .map(([date, v]) =>
+      `${date}: ${Math.round(v.cal)} cal, ${v.protein.toFixed(1)}g protein, ` +
+      `${v.carbs.toFixed(1)}g carbs, ${v.fat.toFixed(1)}g fat`
+    )
+    .join('\n');
+
+  const prompt = `
+You are a friendly nutrition coach.
+Here is ${user.name}'s food log for the past week:
+
+${daySummary || 'No logs recorded this week.'}
+
+Their daily targets: ${user.targetCalories} cal, ${user.targetProtein}g protein, ${user.targetCarbs}g carbs, ${user.targetFat}g fat.
+
+Write a concise, encouraging 3–4 sentence personalised summary:
+- Highlight what they did well
+- Point out one area to improve
+- Give one practical tip tailored to an Indian diet
+Keep it warm, motivating, and specific. No bullet points — plain text only.`;
+
+  return callGemini(prompt);
+}
