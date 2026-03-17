@@ -54,20 +54,21 @@ export const calculateHealthPlan = async (name: string, age: number, height: num
 export const analyzeFoodText = async (description: string): Promise<any> => {
   const res = await ai.models.generateContent({
     model: MODEL_NAME,
-    contents: `Analyse this food: "${description}". ${INDIAN_CONTEXT} Return nutrition for TOTAL quantity.`,
-    config: { responseMimeType: "application/json", responseSchema: foodSchema },
+    contents: `Analyse this food: "${description}". ${INDIAN_CONTEXT} Return ONLY a JSON object with fields: name, quantity, unit, weight_g, calories, protein, carbs, fat, fiber, micros (object with calcium, iron, vitaminA, vitaminC). No explanation, just JSON.`,
   });
-  const data = JSON.parse(res.text || "{}");
+  const data = JSON.parse(res.text?.replace(/```json|```/g, '').trim() || "{}");
   return { ...data, amount: `${data.quantity} ${data.unit}` };
 };
 
 export const analyzeFoodImage = async (imageBase64: string, mimeType: string): Promise<any> => {
   const res = await ai.models.generateContent({
     model: MODEL_NAME,
-    contents: { parts: [{ inlineData: { data: imageBase64, mimeType } }, { text: `Identify this food and estimate nutrition. ${INDIAN_CONTEXT} Return nutrition for TOTAL identified quantity.` }] },
-    config: { responseMimeType: "application/json", responseSchema: foodSchema },
+    contents: { parts: [
+      { inlineData: { data: imageBase64, mimeType } },
+      { text: `Identify this food and estimate nutrition. ${INDIAN_CONTEXT} Return ONLY a JSON object with fields: name, quantity, unit, weight_g, calories, protein, carbs, fat, fiber, micros (object with calcium, iron, vitaminA, vitaminC). No explanation, just JSON.` }
+    ]},
   });
-  const data = JSON.parse(res.text || "{}");
+  const data = JSON.parse(res.text?.replace(/```json|```/g, '').trim() || "{}");
   return { ...data, amount: `${data.quantity} ${data.unit}` };
 };
 
