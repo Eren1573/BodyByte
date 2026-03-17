@@ -3,8 +3,7 @@ import { UserProfile, Gender, FoodItem } from "../types";
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 // Constants for Models
-const MODEL_NAME = "gemini-3-flash-preview";
-
+const MODEL_NAME = "gemini-2.0-flash";
 // Shared schema for food nutrition
 const foodSchema = {
   type: Type.OBJECT,
