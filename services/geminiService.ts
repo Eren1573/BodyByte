@@ -16,9 +16,13 @@ const withRotation = async (fn: (ai: GoogleGenAI) => Promise<any>): Promise<any>
     try {
       return await fn(getAI());
     } catch (e: any) {
-      if (e?.status === 429 || e?.status === 401) {
+      const msg = e?.message || e?.toString() || '';
+      const isRateLimit = msg.includes('429') || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED');
+      if (isRateLimit) {
         keyIndex = (keyIndex + 1) % API_KEYS.length;
-      } else throw e;
+      } else {
+        throw e;
+      }
     }
   }
   throw new Error('All API keys exhausted');
