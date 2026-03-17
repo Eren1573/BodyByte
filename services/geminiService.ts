@@ -4,8 +4,6 @@ import { UserProfile, Gender, FoodItem } from "../types";
 const API_KEYS = [
   import.meta.env.VITE_API_KEY_1,
   import.meta.env.VITE_API_KEY_2,
-  import.meta.env.VITE_API_KEY_3,
-  import.meta.env.VITE_API_KEY_4,
 ];
 
 let keyIndex = 0;
