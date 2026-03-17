@@ -1,38 +1,40 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import { UserProfile, Gender, FoodItem } from "../types";
-const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_API_KEY });
 
-// Constants for Models
-const MODEL_NAME = "gemini-2.0-flash";
-// Shared schema for food nutrition
-const foodSchema = {
-  type: Type.OBJECT,
-  properties: {
-    name: { type: Type.STRING }, quantity: { type: Type.NUMBER }, unit: { type: Type.STRING },
-    weight_g: { type: Type.NUMBER }, calories: { type: Type.NUMBER }, protein: { type: Type.NUMBER },
-    carbs: { type: Type.NUMBER }, fat: { type: Type.NUMBER }, fiber: { type: Type.NUMBER },
-    micros: { type: Type.OBJECT, properties: { calcium: { type: Type.NUMBER }, iron: { type: Type.NUMBER }, vitaminA: { type: Type.NUMBER }, vitaminC: { type: Type.NUMBER } } },
-  },
-  required: ["name", "quantity", "unit", "calories", "protein", "carbs", "fat", "fiber"],
+const API_KEYS = [
+  import.meta.env.VITE_API_KEY_1,
+  import.meta.env.VITE_API_KEY_2,
+  import.meta.env.VITE_API_KEY_3,
+  import.meta.env.VITE_API_KEY_4,
+];
+
+let keyIndex = 0;
+const getAI = () => new GoogleGenAI({ apiKey: API_KEYS[keyIndex] });
+
+const withRotation = async (fn: (ai: GoogleGenAI) => Promise<any>): Promise<any> => {
+  for (let i = 0; i < API_KEYS.length; i++) {
+    try {
+      return await fn(getAI());
+    } catch (e: any) {
+      if (e?.status === 429 || e?.status === 401) {
+        keyIndex = (keyIndex + 1) % API_KEYS.length;
+      } else throw e;
+    }
+  }
+  throw new Error('All API keys exhausted');
 };
+
+const MODEL_NAME = "gemini-2.0-flash";
 
 const INDIAN_CONTEXT = `Use Indian portion context: 1 katori=~150g, 1 roti/chapati=~32g(90kcal), 1 paratha=~70g(200kcal), 1 idli=~37g, 1 dosa(plain)=~55g, 1 samosa=~85g, 1 cup chai(milk)=~110kcal. Report Calcium/Iron in mg, VitaminA in mcg, VitaminC in mg.`;
 
 export const calculateHealthPlan = async (name: string, age: number, height: number, weight: number, gender: Gender): Promise<Partial<UserProfile>> => {
   try {
-    const res = await ai.models.generateContent({
+    const res = await withRotation(ai => ai.models.generateContent({
       model: MODEL_NAME,
-      contents: `Calculate health metrics for: ${name}, Age ${age}, Height ${height}cm, Weight ${weight}kg, Gender ${gender}. Provide BMI, daily calorie target, macro split (protein/carbs/fat in grams), micronutrient targets (fiber g, calcium mg, iron mg, vitaminA mcg, vitaminC mg), and daily water intake in ml.`,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: { bmi: { type: Type.NUMBER }, targetCalories: { type: Type.NUMBER }, targetProtein: { type: Type.NUMBER }, targetCarbs: { type: Type.NUMBER }, targetFat: { type: Type.NUMBER }, targetFiber: { type: Type.NUMBER }, targetCalcium: { type: Type.NUMBER }, targetIron: { type: Type.NUMBER }, targetVitaminA: { type: Type.NUMBER }, targetVitaminC: { type: Type.NUMBER }, targetWater: { type: Type.NUMBER } },
-          required: ["bmi", "targetCalories", "targetProtein", "targetCarbs", "targetFat", "targetFiber", "targetCalcium", "targetIron", "targetVitaminA", "targetVitaminC", "targetWater"],
-        },
-      },
-    });
-    return JSON.parse(res.text || "{}");
+      contents: `Calculate health metrics for: ${name}, Age ${age}, Height ${height}cm, Weight ${weight}kg, Gender ${gender}. Return ONLY a JSON object with fields: bmi, targetCalories, targetProtein, targetCarbs, targetFat, targetFiber, targetCalcium, targetIron, targetVitaminA, targetVitaminC, targetWater. No explanation, just JSON.`,
+    }));
+    return JSON.parse(res.text?.replace(/```json|```/g, '').trim() || "{}");
   } catch {
     const h = height / 100;
     const bmi = parseFloat((weight / (h * h)).toFixed(1));
@@ -52,22 +54,22 @@ export const calculateHealthPlan = async (name: string, age: number, height: num
 };
 
 export const analyzeFoodText = async (description: string): Promise<any> => {
-  const res = await ai.models.generateContent({
+  const res = await withRotation(ai => ai.models.generateContent({
     model: MODEL_NAME,
     contents: `Analyse this food: "${description}". ${INDIAN_CONTEXT} Return ONLY a JSON object with fields: name, quantity, unit, weight_g, calories, protein, carbs, fat, fiber, micros (object with calcium, iron, vitaminA, vitaminC). No explanation, just JSON.`,
-  });
+  }));
   const data = JSON.parse(res.text?.replace(/```json|```/g, '').trim() || "{}");
   return { ...data, amount: `${data.quantity} ${data.unit}` };
 };
 
 export const analyzeFoodImage = async (imageBase64: string, mimeType: string): Promise<any> => {
-  const res = await ai.models.generateContent({
+  const res = await withRotation(ai => ai.models.generateContent({
     model: MODEL_NAME,
     contents: { parts: [
       { inlineData: { data: imageBase64, mimeType } },
       { text: `Identify this food and estimate nutrition. ${INDIAN_CONTEXT} Return ONLY a JSON object with fields: name, quantity, unit, weight_g, calories, protein, carbs, fat, fiber, micros (object with calcium, iron, vitaminA, vitaminC). No explanation, just JSON.` }
     ]},
-  });
+  }));
   const data = JSON.parse(res.text?.replace(/```json|```/g, '').trim() || "{}");
   return { ...data, amount: `${data.quantity} ${data.unit}` };
 };
@@ -81,9 +83,9 @@ export const getWeeklySummary = async (weekLogs: FoodItem[], user: UserProfile):
   });
   const summary = Object.entries(days).map(([d, v]) => `${d}: ${Math.round(v.cal)}cal, ${Math.round(v.prot)}g protein`).join('\n');
 
-  const res = await ai.models.generateContent({
+  const res = await withRotation(ai => ai.models.generateContent({
     model: MODEL_NAME,
     contents: `You are a friendly Indian nutrition coach. Analyse this week for ${user.name} (target: ${user.targetCalories}cal/day, ${user.targetProtein}g protein):\n${summary || "No data logged."}\n\nWrite a warm 3-4 sentence summary: what went well, one tip mentioning Indian foods if relevant, motivating close. Under 80 words.`,
-  });
+  }));
   return res.text || "Keep logging your meals to get a personalised weekly summary!";
 };
