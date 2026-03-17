@@ -13,19 +13,22 @@ const getAI = () => new GoogleGenAI({ apiKey: API_KEYS[keyIndex] });
 
 const withRotation = async (fn: (ai: GoogleGenAI) => Promise<any>): Promise<any> => {
   for (let i = 0; i < API_KEYS.length; i++) {
+    const currentKey = API_KEYS[(keyIndex + i) % API_KEYS.length];
+    if (!currentKey) continue;
     try {
-      return await fn(getAI());
+      const ai = new GoogleGenAI({ apiKey: currentKey });
+      return await fn(ai);
     } catch (e: any) {
       const msg = e?.message || e?.toString() || '';
       const isRateLimit = msg.includes('429') || msg.includes('quota') || msg.includes('RESOURCE_EXHAUSTED');
       if (isRateLimit) {
         keyIndex = (keyIndex + 1) % API_KEYS.length;
-      } else {
-        throw e;
+        continue;
       }
+      throw e;
     }
   }
-  throw new Error('All API keys exhausted');
+  throw new Error('All API keys exhausted. Please wait a few minutes.');
 };
 
 const MODEL_NAME = "gemini-2.0-flash";
